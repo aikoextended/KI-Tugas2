@@ -1,11 +1,11 @@
-# DES Device 1 - IP: 172.16.16.101
-
+# DES Device 1 - Real Network Implementation
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import urllib.request
 import threading
+import socket
 
-# DES ALGORITHM
+# DES ALGORITHM 
 IP = [58, 50, 42, 34, 26, 18, 10, 2,
       60, 52, 44, 36, 28, 20, 12, 4,
       62, 54, 46, 38, 30, 22, 14, 6,
@@ -100,18 +100,14 @@ PC2 = [14, 17, 11, 24, 1, 5,
 
 SHIFT_SCHEDULE = [1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1]
 
-
 def permute(block, table):
     return ''.join([block[i - 1] for i in table])
-
 
 def left_shift(bits, n):
     return bits[n:] + bits[:n]
 
-
 def xor(bits1, bits2):
     return ''.join(['0' if bits1[i] == bits2[i] else '1' for i in range(len(bits1))])
-
 
 def s_box_substitution(bits):
     result = ''
@@ -122,7 +118,6 @@ def s_box_substitution(bits):
         val = S_BOX[i][row][col]
         result += format(val, '04b')
     return result
-
 
 def generate_keys(key):
     key = permute(key, PC1)
@@ -137,14 +132,12 @@ def generate_keys(key):
         keys.append(round_key)
     return keys
 
-
 def des_round(right, round_key):
     expanded = permute(right, E)
     xored = xor(expanded, round_key)
     substituted = s_box_substitution(xored)
     result = permute(substituted, P)
     return result
-
 
 def des_encrypt_block(block, keys):
     block = permute(block, IP)
@@ -158,14 +151,11 @@ def des_encrypt_block(block, keys):
     ciphertext = permute(combined, IP_INV)
     return ciphertext
 
-
 def des_decrypt_block(block, keys):
     return des_encrypt_block(block, keys[::-1])
 
-
 def string_to_bits(text):
     return ''.join([format(ord(c), '08b') for c in text])
-
 
 def bits_to_string(bits):
     chars = []
@@ -175,13 +165,11 @@ def bits_to_string(bits):
             chars.append(chr(int(byte, 2)))
     return ''.join(chars)
 
-
 def pad_text(text):
     padding_length = 8 - (len(text) % 8)
     if padding_length == 8:
         padding_length = 0
     return text + chr(padding_length) * padding_length
-
 
 def unpad_text(text):
     if not text:
@@ -190,7 +178,6 @@ def unpad_text(text):
     if padding_length < 8:
         return text[:-padding_length] if padding_length > 0 else text
     return text
-
 
 def des_encrypt(plaintext, key):
     plaintext = pad_text(plaintext)
@@ -209,7 +196,6 @@ def des_encrypt(plaintext, key):
     ciphertext_hex = hex(int(ciphertext_bits, 2))[2:].upper()
     return ciphertext_hex
 
-
 def des_decrypt(ciphertext_hex, key):
     if len(key) < 8:
         key = key.ljust(8, '0')
@@ -227,7 +213,23 @@ def des_decrypt(ciphertext_hex, key):
     plaintext = unpad_text(plaintext)
     return plaintext
 
+# NETWORK CONFIGURATION
+def get_local_ip():
+    """Mendapatkan IP address lokal laptop ini"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except:
+        return "127.0.0.1"
+
+# Global variable untuk menyimpan IP Device 2
+DEVICE2_IP = None
+
 # HTTP SERVER
+
 class DESRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
@@ -254,16 +256,15 @@ class DESRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-
-def start_server():
-    server = HTTPServer(('172.16.16.101', 8080), DESRequestHandler)
-    print("Device 1 berjalan di 172.16.16.101:8080")
+def start_server(host):
+    server = HTTPServer((host, 8080), DESRequestHandler)
+    print(f"Server berjalan di {host}:8080")
     print("Menunggu pesan dari Device 2...")
     server.serve_forever()
 
-
 def send_to_device2(ciphertext, key):
-    url = 'http://172.16.16.102:8080'
+    global DEVICE2_IP
+    url = f'http://{DEVICE2_IP}:8080'
     headers = {'Content-Type': 'application/json'}
     data = {
         'ciphertext': ciphertext,
@@ -273,22 +274,36 @@ def send_to_device2(ciphertext, key):
     try:
         req = urllib.request.Request(url, json.dumps(data).encode('utf-8'), headers)
         response = urllib.request.urlopen(req, timeout=5)
-        print("✓ Ciphertext dan Key berhasil dikirim ke Device 2")
+        print("✓ Ciphertext berhasil dikirim ke Device 2")
     except Exception as e:
         print(f"✗ Gagal mengirim ke Device 2: {e}")
-
+        print(f"  Pastikan Device 2 sudah berjalan di {DEVICE2_IP}")
 
 def main():
+    global DEVICE2_IP
+    
     print("=" * 50)
     print("DEVICE 1 - DES ENCRYPTION")
-    print("IP: 172.16.16.101")
     print("=" * 50)
     
+    # Dapatkan IP lokal
+    local_ip = get_local_ip()
+    print(f"\nIP Address Device 1 (Laptop ini): {local_ip}")
+    
+    # Input IP Device 2
+    DEVICE2_IP = input("Masukkan IP Address Device 2 (Laptop lain): ").strip()
+    
+    print(f"\nKonfigurasi:")
+    print(f"  Device 1 (Laptop ini): {local_ip}:8080")
+    print(f"  Device 2 (Target)    : {DEVICE2_IP}:8080")
+    
     # Start HTTP server in background
-    server_thread = threading.Thread(target=start_server, daemon=True)
+    server_thread = threading.Thread(target=start_server, args=(local_ip,), daemon=True)
     server_thread.start()
     
-    print("\n")
+    print("\n" + "="*50)
+    print("READY! Mulai mengirim pesan...")
+    print("="*50 + "\n")
     
     while True:
         try:
@@ -310,7 +325,6 @@ def main():
             break
         except Exception as e:
             print(f"Error: {e}\n")
-
 
 if __name__ == "__main__":
     main()
